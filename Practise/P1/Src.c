@@ -25,7 +25,23 @@ NTSTATUS P1DispatchWrite(
 	_Inout_  struct _IRP *Irp
 	)
 {
-	KdPrint(("Module Practise1 Name:%u is unloaded!\nIRP:%s\n", DeviceObject->Size,Irp));
+	PIO_STACK_LOCATION  pStackLoc = IoGetCurrentIrpStackLocation(Irp); //根据irp指针获取IRP在IRP栈上的位置，从该位置可以访问IRP的参数
+	PVOID pData = Irp->AssociatedIrp.SystemBuffer;
+	ULONG size = pStackLoc->Parameters.Write.Length; //不管缓冲区是userbuffer还是还是SystemBuffer，该值都是写入数据的长度
+	if (pData == NULL&&Irp->MdlAddress!=NULL)// 当io类型是buffered I/O时使用AssociatedIrp.SystemBuffer存储缓冲大小
+	{
+		KdPrint(("this is a  DirectIo\n")); 
+		//如果是Direct I/O那么 用户写的数据写在由MdlAddress秒速的一块内存上
+		pData = MmGetSystemAddressForMdlSafe(Irp->MdlAddress, HighPagePriority); //获得MDL对象指向的缓冲区在系统空间中的虚拟地址？意义不明
+		size = MmGetMdlByteCount(Irp->MdlAddress);
+
+	}
+	else
+	{
+		pData = Irp->UserBuffer;
+	}
+	KdPrint(("Get a Write Irp to Dev %p ,size:%d\n context=%s\n", DeviceObject,size,pData ));
+	
 	return STATUS_SUCCESS;
 }
 
