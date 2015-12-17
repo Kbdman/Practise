@@ -1,6 +1,50 @@
+/*
+创建一个过滤器设备附加到一个串口上，截取一些对串口的访问信息
+*/
 #include <ntddk.h>
 #include <ntstrsafe.h>
 #include <wdf.h>
+#define MEM_TAG 'MYTG'
+struct attachPair* pPairs = NULL;
+struct attachPair** pLastPtr = &pPairs;
+//用于将内存置0的小函数，不太确定memset是否可用，不太想调用c库函数
+void memzero(char* addr, int size)
+{
+	int i = 0;
+	for (; i < size; i++)
+		addr[i] = '\0';
+}
+//实现的一个小链表，在本例子里应该没什么卵用
+ struct attachPair
+{
+	PDEVICE_OBJECT Obj;
+	PDEVICE_OBJECT AttachedObj;
+	struct attachPair *next;
+};
+
+ PDEVICE_OBJECT getAttachedObjFromList(PDEVICE_OBJECT pObj)
+ {
+	 struct attachPair* pRead = pPairs;
+	 while (pRead != NULL)
+	 {
+		 if (pRead->Obj == pObj)
+			 return pRead->AttachedObj;
+	 }
+	 return NULL;
+ }
+ NTSTATUS allocAPairAndConnect(struct attachPair** pPtr)
+ {
+	 /*
+	  系统会将tag与申请的内存做关联，一些工具比如WINDBG，会将与申请的缓冲区与对应的tag关联的显示在一起。
+	 */
+	 struct attachPair* pPair= ExAllocatePoolWithTag(PagedPool,sizeof(struct attachPair),MEM_TAG);
+	 if (pPair == NULL)
+		 return STATUS_INSUFFICIENT_RESOURCES;
+	 memzero((char*)pPair,sizeof(struct attachPair));
+	 *pPtr = pPair;
+	 return STATUS_SUCCESS;
+ }
+
 NTSTATUS attachDev(_In_ PDRIVER_OBJECT DriObj ,_In_ PDEVICE_OBJECT DevObj, _Out_ PDEVICE_OBJECT *fltObj,_Out_ PDEVICE_OBJECT *attachedObj)
 {
 	NTSTATUS status = STATUS_SUCCESS;
@@ -24,8 +68,23 @@ NTSTATUS attachDev(_In_ PDRIVER_OBJECT DriObj ,_In_ PDEVICE_OBJECT DevObj, _Out_
 	}
 	return status;
 }
+NTSTATUS AttDispatchWrite(
+	_Inout_  struct _DEVICE_OBJECT *DeviceObject,
+	_Inout_  struct _IRP *Irp
+	)
+{
+	KdPrint(("In AttDispatchWrite\n"));
+	PDEVICE_OBJECT pObj = getAttachedObjFromList(DeviceObject);
+	if (pObj == NULL)
+		return STATUS_SUCCESS;
+	IoSkipCurrentIrpStackLocation(Irp);
+	return IoCallDriver(pObj,Irp);
+
+}
+
 NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT  DriverObject, _In_ PUNICODE_STRING RegistryPath)
 {
+	DriverObject->MajorFunction[IRP_MJ_WRITE] = AttDispatchWrite; //设定写请求的分发函数
 	NTSTATUS status = STATUS_SUCCESS;
 	KdPrint(("Module DevAtt is loaded\n"));
 	KdPrint(("DirvierName=%ws\nRegistryPath=%ws\n", DriverObject->DriverName, RegistryPath));
@@ -47,9 +106,20 @@ NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT  DriverObject, _In_ PUNICODE_STRING Reg
 	status = attachDev(DriverObject, pDevObj, &pObj, &pAttachedObj);
 	if (!NT_SUCCESS(status))
 	{
+
+		IoDeleteDevice(pObj);
 		KdPrint(("attach Failed!"));
 		return status;
 	}
+	status= allocAPairAndConnect(&pPairs);
+	if (NT_SUCCESS(status))
+	{
+		IoDeleteDevice(pObj);
+		return status;
+	}
+	(*pLastPtr)->Obj = pObj;
+	(*pLastPtr)->AttachedObj = pAttachedObj;
+	pLastPtr = &(((*pLastPtr))->next);
 	KdPrint(("attach SS!"));
 	return status;
 }
