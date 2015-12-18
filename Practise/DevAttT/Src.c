@@ -68,6 +68,21 @@ NTSTATUS attachDev(_In_ PDRIVER_OBJECT DriObj ,_In_ PDEVICE_OBJECT DevObj, _Out_
 	}
 	return status;
 }
+NTSTATUS AttDispatchPower(
+	_Inout_  struct _DEVICE_OBJECT *DeviceObject,
+	_Inout_  struct _IRP *Irp
+	)
+{
+
+	KdPrint(("In AttDispatchP\n"));
+	PDEVICE_OBJECT pObj = getAttachedObjFromList(DeviceObject);
+	if (pObj == NULL)
+		return STATUS_SUCCESS;
+	PoStartNextPowerIrp(Irp);
+	IoSkipCurrentIrpStackLocation(Irp);
+	return PoCallDriver(pObj, Irp);
+}
+
 NTSTATUS AttDispatchWrite(
 	_Inout_  struct _DEVICE_OBJECT *DeviceObject,
 	_Inout_  struct _IRP *Irp
@@ -81,15 +96,29 @@ NTSTATUS AttDispatchWrite(
 	return IoCallDriver(pObj,Irp);
 
 }
-
+NTSTATUS AttDispatchCreate(
+	_Inout_  struct _DEVICE_OBJECT *DeviceObject,
+	_Inout_  struct _IRP *Irp
+	)
+{
+	KdPrint(("In AttDispatchR\n"));
+	PDEVICE_OBJECT pObj = getAttachedObjFromList(DeviceObject);
+	if (pObj == NULL)
+		return STATUS_SUCCESS;
+	IoSkipCurrentIrpStackLocation(Irp);
+	return IoCallDriver(pObj, Irp);
+}
 NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT  DriverObject, _In_ PUNICODE_STRING RegistryPath)
 {
-	DriverObject->MajorFunction[IRP_MJ_WRITE] = AttDispatchWrite; //设定写请求的分发函数
+	for (int i = 0; i < 28;i++)
+		DriverObject->MajorFunction[IRP_MJ_WRITE] = AttDispatchWrite; //设定写请求的分发函数
+	DriverObject->MajorFunction[IRP_MJ_POWER] = AttDispatchPower;
+	DriverObject->MajorFunction[IRP_MJ_CREATE] = AttDispatchCreate;
 	NTSTATUS status = STATUS_SUCCESS;
 	KdPrint(("Module DevAtt is loaded\n"));
 	KdPrint(("DirvierName=%ws\nRegistryPath=%ws\n", DriverObject->DriverName, RegistryPath));
 	UNICODE_STRING str;
-	RtlInitUnicodeString(&str,L"\\Device\\00000069");//这个设备名是我虚拟机中的串口，如果是硬件设备可以从设备管理器中查到，也可以查到设备的驱动堆栈
+	RtlInitUnicodeString(&str,L"\\Device\\0000006a");//这个设备名是我虚拟机中的串口，如果是硬件设备可以从设备管理器中查到，也可以查到设备的驱动堆栈
 	PFILE_OBJECT pFobj;
 	PDEVICE_OBJECT pDevObj;
 	status=IoGetDeviceObjectPointer(&str,FILE_ALL_ACCESS,&pFobj,&pDevObj);
@@ -108,11 +137,11 @@ NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT  DriverObject, _In_ PUNICODE_STRING Reg
 	{
 
 		IoDeleteDevice(pObj);
-		KdPrint(("attach Failed!"));
+		KdPrint(("attach Failed!\n"));
 		return status;
 	}
 	status= allocAPairAndConnect(&pPairs);
-	if (NT_SUCCESS(status))
+	if (!NT_SUCCESS(status))
 	{
 		IoDeleteDevice(pObj);
 		return status;
@@ -120,6 +149,6 @@ NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT  DriverObject, _In_ PUNICODE_STRING Reg
 	(*pLastPtr)->Obj = pObj;
 	(*pLastPtr)->AttachedObj = pAttachedObj;
 	pLastPtr = &(((*pLastPtr))->next);
-	KdPrint(("attach SS!"));
+	KdPrint(("attach SS!\n"));
 	return status;
 }
