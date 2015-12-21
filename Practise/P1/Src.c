@@ -36,7 +36,7 @@ NTSTATUS P1DispatchWrite(
 		size = MmGetMdlByteCount(Irp->MdlAddress);
 
 	}
-	else
+	if (pData==NULL)
 	{
 		pData = Irp->UserBuffer;
 	}
