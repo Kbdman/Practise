@@ -89,9 +89,31 @@ NTSTATUS AttDispatchWrite(
 	)
 {
 	KdPrint(("In AttDispatchWrite\n"));
+	PIO_STACK_LOCATION pStack = IoGetCurrentIrpStackLocation(Irp);
 	PDEVICE_OBJECT pObj = getAttachedObjFromList(DeviceObject);
 	if (pObj == NULL)
 		return STATUS_SUCCESS;
+	;
+	int size = pStack->Parameters.Write.Length;
+	char* pData = Irp->AssociatedIrp.SystemBuffer;
+	if (pData == NULL&&Irp->MdlAddress != NULL)
+	{
+		KdPrint(("this is a  DirectIo\n"));
+		//如果是Direct I/O那么 用户写的数据写在由MdlAddress秒速的一块内存上
+		pData = MmGetSystemAddressForMdlSafe(Irp->MdlAddress, HighPagePriority); //获得MDL对象指向的缓冲区在系统空间中的虚拟地址？意义不明
+		size = MmGetMdlByteCount(Irp->MdlAddress);
+	}
+	if (pData==NULL)
+	{
+		pData = Irp->UserBuffer;
+	}
+	KdPrint(("Start PRT\n"));
+	for (int i = 0; i < size; i++)
+	{
+		KdPrint(("%c",pData[i]));
+	}
+
+	KdPrint(("End PRT\n"));
 	IoSkipCurrentIrpStackLocation(Irp);
 	return IoCallDriver(pObj,Irp);
 
